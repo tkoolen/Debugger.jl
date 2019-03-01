@@ -14,7 +14,7 @@ function perform_return!(state::DebuggerState)
             elseif isassign(calling_frame)
                 do_assignment!(calling_frame, getlhs(calling_frame.pc[]), val)
             end
-            state.stack[2] = JuliaStackFrame(calling_frame, maybe_next_call!(Compiled(), calling_frame,
+            state.stack[2] = JuliaStackFrame(calling_frame, maybe_next_call!(maybe_compiled(state.stack), calling_frame,
                 calling_frame.pc[] + 1))
         end
     else
@@ -23,7 +23,7 @@ function perform_return!(state::DebuggerState)
     end
     popfirst!(state.stack)
     if !isempty(state.stack) && state.stack[1].code.wrapper
-        state.stack[1] = JuliaStackFrame(state.stack[1], finish!(Compiled(), state.stack[1]))
+        state.stack[1] = JuliaStackFrame(state.stack[1], finish!(maybe_compiled(state.stack), state.stack[1]))
         perform_return!(state)
     end
 end
@@ -45,22 +45,38 @@ function propagate_exception!(state::DebuggerState, exc)
     rethrow(exc)
 end
 
+
 function execute_command(state::DebuggerState, frame::JuliaStackFrame, ::Union{Val{:nc},Val{:n},Val{:se}}, cmd::AbstractString)
     pc = try
-        cmd == "nc" ? next_call!(Compiled(), frame) :
-        cmd == "n" ? next_line!(Compiled(), frame, state.stack) :
-        #= cmd == "se" =# step_expr!(Compiled(), frame)
+        cmd == "nc" ? next_call!(maybe_compiled(state.stack), frame) :
+        cmd == "n" ? next_line!(maybe_compiled(state.stack), frame, state.stack) :
+        #= cmd == "se" =# step_expr!(maybe_compiled(state.stack), frame)
     catch err
         propagate_exception!(state, err)
-        state.stack[1] = JuliaStackFrame(state.stack[1], next_call!(Compiled(), state.stack[1], state.stack[1].pc[]))
+        state.stack[1] = JuliaStackFrame(state.stack[1], next_call!(maybe_compiled(state.stack), state.stack[1], state.stack[1].pc[]))
         return true
     end
+    @show pc
+    if pc isa Breakpoints.Breakpoint
+        @show pc.stmtidx
+        handle_breakpoint(state, pc)
+        #pc = JuliaProgramCounter(pc.stmtidx)
+        state.stack[1] = JuliaStackFrame(state.stack[1], JuliaProgramCounter(pc.stmtidx))
+        return true
+    end
+
     if pc != nothing
-        state.stack[1] = JuliaStackFrame(state.stack[1], pc)
+      
+        #state.stack[1] = JuliaStackFrame(state.stack[1], pc)
         return true
     end
     perform_return!(state)
     return true
+end
+
+function handle_breakpoint(state, bp)
+    @info "Hit breakpoint at..."
+    state.active_bp = bp
 end
 
 function execute_command(state::DebuggerState, frame, cmd::Union{Val{:s},Val{:si},Val{:sg}}, command::AbstractString)
@@ -78,7 +94,7 @@ function execute_command(state::DebuggerState, frame, cmd::Union{Val{:s},Val{:si
                 new_frame = enter_call_expr(expr; enter_generated = command == "sg")
                 if new_frame != nothing
                     if (cmd == Val{:s}() || cmd == Val{:sg}())
-                        new_frame = JuliaStackFrame(new_frame, maybe_next_call!(Compiled(), new_frame))
+                        new_frame = JuliaStackFrame(new_frame, maybe_next_call!(maybe_compiled(state.stack), new_frame))
                     end
                     # Don't step into Core.Compiler
                     if moduleof(new_frame) == Core.Compiler
@@ -94,7 +110,7 @@ function execute_command(state::DebuggerState, frame, cmd::Union{Val{:s},Val{:si
                 if !ok
                     # It's confusing if we step into the next call, so just go there
                     # and then return
-                    state.stack[1] = JuliaStackFrame(frame, next_call!(Compiled(), frame, pc))
+                    state.stack[1] = JuliaStackFrame(frame, next_call!(maybe_compiled(state.stack), frame, pc))
                     return true
                 end
             elseif !first && isexpr(expr, :return)
@@ -105,10 +121,10 @@ function execute_command(state::DebuggerState, frame, cmd::Union{Val{:s},Val{:si
         first = false
         command == "si" && break
         new_pc = try
-            _step_expr!(Compiled(), frame, pc)
+            _step_expr!(maybe_compiled(state.stack), frame, pc)
         catch err
             propagate_exception!(state, err)
-            state.stack[1] = JuliaStackFrame(state.stack[1], next_call!(Compiled(), state.stack[1], pc))
+            state.stack[1] = JuliaStackFrame(state.stack[1], next_call!(maybe_compiled(state.stack), state.stack[1], pc))
             return true
         end
         if new_pc == nothing
@@ -124,7 +140,7 @@ function execute_command(state::DebuggerState, frame, cmd::Union{Val{:s},Val{:si
 end
 
 function execute_command(state::DebuggerState, frame::JuliaStackFrame, ::Val{:finish}, cmd::AbstractString)
-    state.stack[1] = JuliaStackFrame(frame, finish!(Compiled(), frame))
+    state.stack[1] = JuliaStackFrame(frame, finish!(maybe_compiled(state.stack), frame))
     perform_return!(state)
     return true
 end

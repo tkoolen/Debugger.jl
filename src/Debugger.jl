@@ -7,7 +7,7 @@ using REPL.LineEdit
 using REPL.REPLCompletions
 
 using JuliaInterpreter: JuliaInterpreter, JuliaStackFrame, @lookup, Compiled, JuliaProgramCounter, JuliaFrameCode,
-      finish!, enter_call_expr, step_expr!
+      finish!, enter_call_expr, step_expr!, Breakpoints
 
 # TODO: Work on better API in JuliaInterpreter and rewrite Debugger.jl to use it
 # These are undocumented functions from JuliaInterpreter.jl used by Debugger.jl`
@@ -23,6 +23,16 @@ function __init__()
 end
 
 export @enter
+
+# If there are no breakpoints set we can run a lot of things in compiled mode
+function maybe_compiled(stack)
+    # TODO: Better way of accessing the breakpoints in JuliaInterpreter
+    if length(JuliaInterpreter.Breakpoints._breakpoints) == 0
+        return Compiled()
+    else
+        return stack
+    end
+end
 
 include("LineNumbers.jl")
 using .LineNumbers: SourceFile, compute_line

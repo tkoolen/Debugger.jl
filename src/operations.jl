@@ -7,8 +7,9 @@ mutable struct DebuggerState
     julia_prompt::Ref{LineEdit.Prompt}
     standard_keymap
     overall_result
+    active_bp::Union{Nothing, Breakpoints.Breakpoint}
 end
-DebuggerState(stack, repl, terminal) = DebuggerState(stack, 1, repl, terminal, nothing, Ref{LineEdit.Prompt}(), nothing, nothing)
+DebuggerState(stack, repl, terminal) = DebuggerState(stack, 1, repl, terminal, nothing, Ref{LineEdit.Prompt}(), nothing, nothing, nothing)
 DebuggerState(stack, repl) = DebuggerState(stack, repl, nothing)
 
 function sparam_syms(meth::Method)

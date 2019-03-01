@@ -1,7 +1,7 @@
-
+global STACK = 0
 promptname(level, name) = "$level|$name> "
 function RunDebugger(stack, repl = Base.active_repl, terminal = Base.active_repl.t)
-
+    global STACK = stack
     state = DebuggerState(stack, repl, terminal)
 
     # Setup debug panel
@@ -33,11 +33,25 @@ function RunDebugger(stack, repl = Base.active_repl, terminal = Base.active_repl
         end
         do_print_status = true
         cmd1 = split(command,' ')[1]
+        bp = state.active_bp
+        if bp !== nothing
+            @info "disabling breakpoint"
+            Breakpoints.disable(bp)
+            state.active_bp = nothing
+        end
         do_print_status = try
             execute_command(state, state.stack[state.level], Val{Symbol(cmd1)}(), command)
         catch err
             rethrow(err)
+        finally
+            if bp !== nothing
+                @info "enabling breakpoint"
+                Breakpoints.enable(bp)
+            end
         end
+        @show state.level
+        
+
         if old_level != state.level
             panel.prompt = promptname(state.level,"debug")
         end
